@@ -15,7 +15,7 @@ from multiprocessing.dummy import Pool as ThreadPool
 class Result:
     """"""
     #----------------------------------------------------------------------
-    def __init__(self, domain, port, scheme='http', timeout=5):
+    def __init__(self, domain, port, scheme='http'):
         self.urls = set()
         self.keys = set()
         self.ips = set()
@@ -27,27 +27,28 @@ class Result:
 
     
 class TextMatcher(object):
-    __slots__ = ('plain_array', 'regex_array', 'search_text', 'findall_text')
+    __slots__ = ('plain_array', 'regex_array')
     def __init__(self):
         self.plain_array = []
         self.regex_array = []
         
     def search_text(self, text, index=0):
+        assert index >= 0, "expect index >=0 in search_text, but got {}".format(index)
         if not text:
-            return False
+            return None
         # search plain texts first
         for keyword in self.plain_array:
             if keyword in text:
                 return keyword
-            
+
         # search regexes
         for regex in self.regex_array:
             match = re.search(regex, text)
             if match:
                 return match.group(index) if index > 0 else match.group(0)
-            
-        return False
-    
+
+        return None
+
     def findall_text(self, text):
         retval = []
         if not text:
@@ -88,8 +89,7 @@ def test_for_http_urls(value):
     
     matches = TextMatcher()
     matches.regex_array = [regex1, regex2]
-    matched_text = matches.search_text(value, index=1)
-    return matched_text if matched_text else None
+    return matches.search_text(value, index=1)
 
 def test_for_emails(value):
     matches = TextMatcher()
@@ -122,62 +122,62 @@ def test_for_ips(value):
         r"""^([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])\.([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])\.([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])\.([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])$"""
     ]
     matched_text = matches.search_text(value)
-    if matched_text in ['0.0.0.0', '127.0.0.1']:
+    if matched_text in ('0.0.0.0', '127.0.0.1'):
         matched_text = None
-    return matched_text if matched_text else None
+    return matched_text
 
 def test_for_url_path(value):
     matches = TextMatcher()
     matches.regex_array = [
         r"""(\/[\w\/\.]*(\.\w+)?)"""
     ]
-    ban_chars = ['//','../']
+    ban_chars = ['//', '../']
     matched_text = matches.search_text(value)
     for ban_char in ban_chars:
         if matched_text and ban_char in matched_text:
             matched_text = None
-    return matched_text if matched_text else None
+    return matched_text
 
 
-def verify_result(result):
+def verify_result(result, timeout=5):
     def query(url):
         try:
             requests.packages.urllib3.disable_warnings()
-            resp = requests.get(url, verify=False)
+            resp = requests.get(url, verify=False, timeout=timeout)
             if resp.status_code != 404:
                 return url
         except:
             pass
         return None
-    
+
     urls = ['%s://%s:%s%s' %(result.scheme, result.domain, result.port, i) for i in result.paths] 
     tp = ThreadPool(20)
     url_list = tp.map(query, urls)
-    ok_urls = filter(lambda x:x is not None, url_list)
+    ok_urls = list(filter(lambda x:x is not None, url_list))
     result.ok_urls = ok_urls
     tp.close()
     tp.join()
     return ok_urls
-    
+
 
 def print_result(result):
-    print '[+] Results\n'
-    print "#### URLs: (%d) ####" %len(result.urls)
+    print('[+] Results\n')
+    print("#### URLs: (%d) ####" % len(result.urls))
     for i in result.urls:
-        print "%s" % i
+        print(i)
         
-    print "\n#### IPs: (%d) ####" %len(result.ips)
+    print("\n#### IPs: (%d) ####" % len(result.ips))
     for i in result.ips:
-        print "%s" % i    
+        print(i)
         
-    print "\n#### Paths with hostname: (%d) ####" %len(result.ok_urls)
+    print("\n#### Paths with hostname: (%d) ####" % len(result.ok_urls))
     for i in result.ok_urls:
-        print "%s" % i
+        print(i)
         
-    print "\n\n###### KEYs: (%d) ####" %len(result.keys)
+    print("\n\n###### KEYs: (%d) ####" % len(result.keys))
     for i in result.keys:
-        print "%s\n" % i
-    
+        print(i)
+
 
 def main():
     parser = optparse.OptionParser(version='0.1')
@@ -192,10 +192,10 @@ def main():
     if not options.filename:
         parser.print_help()
     else:
-        result = Result(options.domain, options.port, options.scheme, options.timeout)
+        result = Result(options.domain, options.port, options.scheme)
         try:
-            print '[*] Searching senstive data from file "%s" ...' % options.filename
-            file_object = open(options.filename,'rU')
+            print('[*] Searching senstive data from file "%s" ...' % options.filename)
+            file_object = open(options.filename, 'r')
             for line in file_object:
                 url = test_for_http_urls(line)
                 if url:
@@ -217,10 +217,10 @@ def main():
                 result.keys = keys
         finally:
             file_object.close()
-            
+
         if options.verify:
-            print '[*] Verify %d url paths ...' % len(result.paths)
-            verify_result(result)
+            print('[*] Verify %d url paths ...' % len(result.paths))
+            verify_result(result, options.timeout)
         print_result(result)
 
 if __name__ == '__main__':
