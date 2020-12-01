@@ -1,6 +1,6 @@
 # Minitools-bin_extractor
 
-ps: Please run the script in python2.7 environment.
+ps: Please run the script in python2.7/python3 environment.
 
 
 
